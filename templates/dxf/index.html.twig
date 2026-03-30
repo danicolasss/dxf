@@ -1,0 +1,586 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Générateur DXF{% endblock %}
+
+{% block stylesheets %}
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #1a1a2e; color: #eee; }
+    .app { display: flex; height: 100vh; }
+    .sidebar {
+        width: 380px; min-width: 380px; background: #16213e; padding: 18px;
+        overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+        border-right: 2px solid #0f3460;
+    }
+    .sidebar h1 { font-size: 1.3rem; color: #e94560; margin-bottom: 4px; }
+    .sidebar h2 { font-size: 1rem; color: #53d8fb; margin-bottom: 4px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 0.85rem; color: #aaa; }
+    .field input, .field select {
+        padding: 8px; border-radius: 6px; border: 1px solid #0f3460;
+        background: #1a1a2e; color: #eee; font-size: 0.95rem;
+    }
+    .row { display: flex; gap: 8px; }
+    .row .field { flex: 1; }
+    .btn {
+        padding: 10px 14px; border: none; border-radius: 6px; cursor: pointer;
+        font-size: 0.9rem; font-weight: 600; transition: all 0.2s;
+    }
+    .btn-add { background: #53d8fb; color: #1a1a2e; }
+    .btn-add:hover { background: #3fc1e6; }
+    .btn-generate { background: #e94560; color: #fff; width: 100%; }
+    .btn-generate:hover { background: #c73650; }
+    .btn-remove { background: #533; color: #e94560; border: none; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 0.85rem; }
+    .btn-remove:hover { background: #744; }
+    .btn-cut { background: #9b59b6; color: #fff; }
+    .btn-cut:hover { background: #8e44ad; }
+    .btn-clear-cuts { background: #533; color: #e94560; }
+    .btn-clear-cuts:hover { background: #744; }
+    .btn-connect { background: #2ecc71; color: #fff; }
+    .btn-connect:hover { background: #27ae60; }
+    .btn-move { background: #f39c12; color: #fff; }
+    .btn-move:hover { background: #e67e22; }
+
+    .mode-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .mode-btns .btn { flex: 1; min-width: 80px; text-align: center; font-size: 0.82rem; padding: 8px 6px; }
+    .mode-btns .btn.active { box-shadow: 0 0 12px rgba(83,216,251,0.4); outline: 2px solid #53d8fb; }
+
+    .circle-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .circle-item {
+        display: flex; align-items: center; justify-content: space-between;
+        background: #1a1a2e; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;
+    }
+    .circle-item .info { color: #aaa; }
+    .circle-item .info b { color: #53d8fb; }
+
+    .cut-list { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto; }
+    .cut-item {
+        display: flex; align-items: center; justify-content: space-between;
+        background: #1a1a2e; padding: 6px 10px; border-radius: 6px; font-size: 0.82rem;
+    }
+    .cut-item .info { color: #b39ddb; }
+
+    .canvas-area { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; position: relative; }
+    canvas { background: #0d1117; border-radius: 10px; box-shadow: 0 0 30px rgba(233,69,96,0.15); }
+    .hint { font-size: 0.78rem; color: #666; margin-top: 4px; }
+    .status-bar {
+        position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.7); padding: 6px 16px; border-radius: 8px;
+        font-size: 0.82rem; color: #53d8fb; max-width: 90%;
+    }
+    hr { border: none; border-top: 1px solid #0f3460; }
+    .section { background: #0f1a30; padding: 12px; border-radius: 8px; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.75rem; color: #888; margin-top: 6px; }
+    .legend span { display: flex; align-items: center; gap: 4px; }
+    .legend-color { width: 14px; height: 3px; border-radius: 2px; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="app">
+    <div class="sidebar">
+        <h1>🔧 Générateur DXF — POC</h1>
+        <p class="hint">Pièce métal découpée laser. Le trait de coupe traverse les ronds pour séparer la plaque en 2.</p>
+        <hr>
+
+        <div class="section">
+            <h2>⚙️ Mode</h2>
+            <div class="mode-btns">
+                <button class="btn btn-add active" id="btnModeDraw" onclick="setMode('draw')">✏️ Dessiner</button>
+                <button class="btn btn-move" id="btnModeMove" onclick="setMode('move')">✋ Déplacer</button>
+                <button class="btn btn-cut" id="btnModeCut" onclick="setMode('cut')">✂️ Coupe</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📐 Plaque métal</h2>
+            <div class="row">
+                <div class="field">
+                    <label>Largeur (mm)</label>
+                    <input type="number" id="squareWidth" value="200" min="10" max="2000" step="1">
+                </div>
+                <div class="field">
+                    <label>Hauteur (mm)</label>
+                    <input type="number" id="squareHeight" value="200" min="10" max="2000" step="1">
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>⭕ Cercle (trou)</h2>
+            <div class="row">
+                <div class="field">
+                    <label>X</label>
+                    <input type="number" id="circleX" value="100" step="1">
+                </div>
+                <div class="field">
+                    <label>Y</label>
+                    <input type="number" id="circleY" value="100" step="1">
+                </div>
+                <div class="field">
+                    <label>Rayon</label>
+                    <input type="number" id="circleR" value="30" min="1" step="1">
+                </div>
+            </div>
+            <button class="btn btn-add" id="btnAdd" style="width:100%;margin-top:6px;">+ Ajouter cercle</button>
+            <p class="hint">💡 En mode Dessiner, cliquez sur le canvas pour placer.</p>
+        </div>
+
+        <div class="section">
+            <h2>📋 Cercles (<span id="circleCount">0</span>)</h2>
+            <div class="circle-list" id="circleList">
+                <p class="hint">Aucun cercle ajouté.</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>✂️ Ligne de coupe (<span id="cutCount">0</span>)</h2>
+            <p class="hint">Direction ↕ ou ↔ calculée <b style="color:#9b59b6">automatiquement</b> par rond pour optimiser le trajet.</p>
+            <div class="mode-btns" style="margin-top:8px;margin-bottom:8px;">
+                <button class="btn btn-connect" onclick="autoGenerateCutPath()">🔗 Auto-coupe optimale</button>
+                <button class="btn btn-clear-cuts" onclick="clearCutLines()">🗑️ Suppr.</button>
+            </div>
+            <div class="cut-list" id="cutList"></div>
+            <p class="hint">En mode ✂️ Coupe : cliquez les ronds, puis double-clic ou Entrée pour valider.</p>
+            <div class="legend">
+                <span><span class="legend-color" style="background:#2ecc71"></span> Entrée (↑ haut / ← gauche)</span>
+                <span><span class="legend-color" style="background:#e94560"></span> Sortie (↓ bas / → droite)</span>
+                <span><span class="legend-color" style="background:#9b59b6"></span> Trajet</span>
+            </div>
+        </div>
+
+        <hr>
+        <div class="mode-btns">
+            <button class="btn btn-clear-cuts" onclick="clearAll()">🗑️ Tout effacer</button>
+            <button class="btn btn-generate" id="btnGenerate">⬇ Exporter DXF</button>
+        </div>
+    </div>
+    <div class="canvas-area">
+        <canvas id="canvas" width="700" height="700"></canvas>
+        <div class="status-bar" id="statusBar">Mode : Dessiner — cliquez pour placer un cercle</div>
+    </div>
+</div>
+
+<script>
+(function init() {
+    var canvas = document.getElementById('canvas');
+    var ctx = canvas.getContext('2d');
+    var statusBar = document.getElementById('statusBar');
+    var circles = [];
+    var cutPaths = [];
+    var currentMode = 'draw';
+    var draggingIdx = -1;
+    var dragOffX = 0, dragOffY = 0;
+    var cutSelectedCircles = [];
+
+    var $w = document.getElementById('squareWidth');
+    var $h = document.getElementById('squareHeight');
+    var $cx = document.getElementById('circleX');
+    var $cy = document.getElementById('circleY');
+    var $cr = document.getElementById('circleR');
+    var $list = document.getElementById('circleList');
+    var $cutList = document.getElementById('cutList');
+
+    function pw() { return parseFloat($w.value) || 200; }
+    function ph() { return parseFloat($h.value) || 200; }
+
+    function getScale() {
+        var maxDim = Math.max(pw(), ph());
+        return (Math.min(canvas.width, canvas.height) - 160) / maxDim;
+    }
+
+    function toCanvas(x, y) {
+        var scale = getScale();
+        var offsetX = (canvas.width - pw() * scale) / 2;
+        var offsetY = (canvas.height - ph() * scale) / 2;
+        return [offsetX + x * scale, offsetY + (ph() - y) * scale];
+    }
+
+    function fromCanvas(cx, cy) {
+        var scale = getScale();
+        var offsetX = (canvas.width - pw() * scale) / 2;
+        var offsetY = (canvas.height - ph() * scale) / 2;
+        return [(cx - offsetX) / scale, ph() - (cy - offsetY) / scale];
+    }
+
+    /* --- Geometry helpers --- */
+
+    function circleEntry(c, dir) {
+        return dir === 'vertical' ? { x: c.x, y: c.y + c.radius } : { x: c.x - c.radius, y: c.y };
+    }
+    function circleExit(c, dir) {
+        return dir === 'vertical' ? { x: c.x, y: c.y - c.radius } : { x: c.x + c.radius, y: c.y };
+    }
+
+    function closestBorderPoint(pt, w, h) {
+        var cands = [
+            { x: Math.max(0, Math.min(w, pt.x)), y: h },
+            { x: Math.max(0, Math.min(w, pt.x)), y: 0 },
+            { x: 0, y: Math.max(0, Math.min(h, pt.y)) },
+            { x: w, y: Math.max(0, Math.min(h, pt.y)) }
+        ];
+        var best = cands[0], bestD = Infinity;
+        cands.forEach(function(c) {
+            var d = Math.hypot(c.x - pt.x, c.y - pt.y);
+            if (d < bestD) { bestD = d; best = c; }
+        });
+        return best;
+    }
+
+    function bestDirForCircle(c, prevPt, nextPt) {
+        var best = 'vertical', bestD = Infinity;
+        ['vertical', 'horizontal'].forEach(function(dir) {
+            var entry = circleEntry(c, dir);
+            var exit = circleExit(c, dir);
+            var d = (prevPt ? Math.hypot(entry.x - prevPt.x, entry.y - prevPt.y) : 0)
+                  + (nextPt ? Math.hypot(nextPt.x - exit.x, nextPt.y - exit.y) : 0);
+            if (d < bestD) { bestD = d; best = dir; }
+        });
+        return best;
+    }
+
+    function computeOrder(indices, dirs) {
+        var items = indices.map(function(idx, i) { return { c: circles[idx], idx: idx, dir: dirs[i] }; });
+        if (items.length <= 1) return items;
+        var w = pw(), h = ph();
+        var bestOrder = null, bestTotal = Infinity;
+        for (var s = 0; s < items.length; s++) {
+            var vis = {}; vis[s] = true;
+            var ord = [items[s]], tot = 0, cur = items[s];
+            var fe = circleEntry(cur.c, cur.dir);
+            var sb = closestBorderPoint(fe, w, h);
+            tot += Math.hypot(fe.x - sb.x, fe.y - sb.y);
+            while (ord.length < items.length) {
+                var ce = circleExit(cur.c, cur.dir);
+                var ni = -1, nd = Infinity;
+                for (var j = 0; j < items.length; j++) {
+                    if (vis[j]) continue;
+                    var e = circleEntry(items[j].c, items[j].dir);
+                    var d = Math.hypot(e.x - ce.x, e.y - ce.y);
+                    if (d < nd) { nd = d; ni = j; }
+                }
+                if (ni < 0) break;
+                vis[ni] = true; ord.push(items[ni]); tot += nd; cur = items[ni];
+            }
+            var le = circleExit(cur.c, cur.dir);
+            tot += Math.hypot(le.x - closestBorderPoint(le, w, h).x, le.y - closestBorderPoint(le, w, h).y);
+            if (tot < bestTotal) { bestTotal = tot; bestOrder = ord; }
+        }
+        return bestOrder;
+    }
+
+    function buildCutSegments(cp) {
+        var segs = [];
+        if (!cp.circleIndices.length) return segs;
+        var w = pw(), h = ph();
+        var dirs = cp.directions || cp.circleIndices.map(function() { return 'vertical'; });
+        var ordered = computeOrder(cp.circleIndices, dirs);
+
+        var firstEntry = circleEntry(ordered[0].c, ordered[0].dir);
+        segs.push({ x1: closestBorderPoint(firstEntry, w, h).x, y1: closestBorderPoint(firstEntry, w, h).y, x2: firstEntry.x, y2: firstEntry.y });
+
+        for (var i = 0; i < ordered.length; i++) {
+            var exitPt = circleExit(ordered[i].c, ordered[i].dir);
+            if (i < ordered.length - 1) {
+                var nxtEntry = circleEntry(ordered[i + 1].c, ordered[i + 1].dir);
+                segs.push({ x1: exitPt.x, y1: exitPt.y, x2: nxtEntry.x, y2: nxtEntry.y });
+            }
+        }
+
+        var lastExit = circleExit(ordered[ordered.length - 1].c, ordered[ordered.length - 1].dir);
+        var endPt = closestBorderPoint(lastExit, w, h);
+        segs.push({ x1: lastExit.x, y1: lastExit.y, x2: endPt.x, y2: endPt.y });
+        return segs;
+    }
+
+    function optimizeDirs(indices) {
+        var w = pw(), h = ph();
+        var dirs = indices.map(function() { return 'vertical'; });
+        for (var iter = 0; iter < 4; iter++) {
+            var ordered = computeOrder(indices, dirs);
+            for (var k = 0; k < ordered.length; k++) {
+                var ci = ordered[k].idx;
+                var oi = indices.indexOf(ci);
+                var prevPt, nextPt;
+                if (k > 0) prevPt = circleExit(ordered[k - 1].c, ordered[k - 1].dir);
+                else prevPt = closestBorderPoint(circleEntry(ordered[k].c, dirs[oi]), w, h);
+                if (k < ordered.length - 1) nextPt = circleEntry(ordered[k + 1].c, ordered[k + 1].dir);
+                else nextPt = closestBorderPoint(circleExit(ordered[k].c, dirs[oi]), w, h);
+                dirs[oi] = bestDirForCircle(circles[ci], prevPt, nextPt);
+            }
+        }
+        return dirs;
+    }
+
+    /* --- Mode --- */
+
+    window.setMode = function(mode) {
+        currentMode = mode; cutSelectedCircles = [];
+        document.getElementById('btnModeDraw').classList.toggle('active', mode === 'draw');
+        document.getElementById('btnModeMove').classList.toggle('active', mode === 'move');
+        document.getElementById('btnModeCut').classList.toggle('active', mode === 'cut');
+        canvas.style.cursor = mode === 'draw' ? 'crosshair' : mode === 'move' ? 'grab' : 'pointer';
+        var msgs = { draw: 'Dessiner — cliquez pour placer', move: 'Déplacer — glissez un cercle', cut: 'Coupe — cliquez les ronds, double-clic/Entrée pour valider' };
+        statusBar.textContent = 'Mode : ' + msgs[mode];
+        draw();
+    };
+
+    function findCircleAt(cx, cy) {
+        var coords = fromCanvas(cx, cy), scale = getScale();
+        for (var i = circles.length - 1; i >= 0; i--) {
+            if (Math.hypot(coords[0] - circles[i].x, coords[1] - circles[i].y) <= circles[i].radius + 4 / scale) return i;
+        }
+        return -1;
+    }
+
+    /* --- Events --- */
+
+    canvas.addEventListener('mousedown', function(e) {
+        var rect = canvas.getBoundingClientRect();
+        var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        var coords = fromCanvas(mx, my);
+        if (currentMode === 'draw') {
+            var rx = Math.round(coords[0]), ry = Math.round(coords[1]);
+            $cx.value = rx; $cy.value = ry;
+            addCircle(rx, ry, parseFloat($cr.value) || 10);
+        } else if (currentMode === 'move') {
+            var idx = findCircleAt(mx, my);
+            if (idx >= 0) {
+                draggingIdx = idx; dragOffX = coords[0] - circles[idx].x; dragOffY = coords[1] - circles[idx].y;
+                canvas.style.cursor = 'grabbing';
+            }
+        } else if (currentMode === 'cut') {
+            var idx2 = findCircleAt(mx, my);
+            if (idx2 >= 0) {
+                var pos = cutSelectedCircles.indexOf(idx2);
+                if (pos >= 0) cutSelectedCircles.splice(pos, 1);
+                else cutSelectedCircles.push(idx2);
+                statusBar.textContent = cutSelectedCircles.length + ' rond(s) — double-clic/Entrée pour valider';
+                draw();
+            }
+        }
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+        var rect = canvas.getBoundingClientRect();
+        var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        if (currentMode === 'move' && draggingIdx >= 0) {
+            var mc = fromCanvas(mx, my), c = circles[draggingIdx];
+            c.x = Math.round(Math.max(c.radius, Math.min(pw() - c.radius, mc[0] - dragOffX)));
+            c.y = Math.round(Math.max(c.radius, Math.min(ph() - c.radius, mc[1] - dragOffY)));
+            statusBar.textContent = 'Cercle #' + (draggingIdx + 1) + ' → X:' + c.x + ' Y:' + c.y;
+            draw(); renderList();
+        } else if (currentMode === 'draw') {
+            var mc2 = fromCanvas(mx, my);
+            statusBar.textContent = 'X:' + Math.round(mc2[0]) + ' Y:' + Math.round(mc2[1]);
+        } else if (currentMode === 'cut') {
+            canvas.style.cursor = findCircleAt(mx, my) >= 0 ? 'pointer' : 'default';
+        }
+        if (currentMode === 'move' && draggingIdx < 0) canvas.style.cursor = findCircleAt(mx, my) >= 0 ? 'grab' : 'default';
+    });
+
+    canvas.addEventListener('mouseup', function() { if (draggingIdx >= 0) { draggingIdx = -1; canvas.style.cursor = 'grab'; } });
+    canvas.addEventListener('mouseleave', function() { if (draggingIdx >= 0) { draggingIdx = -1; canvas.style.cursor = 'grab'; } });
+    canvas.addEventListener('dblclick', function(e) { if (currentMode === 'cut' && cutSelectedCircles.length > 0) { e.preventDefault(); finalizeCutPath(); } });
+    document.addEventListener('keydown', function(e) {
+        if (currentMode === 'cut' && e.key === 'Enter' && cutSelectedCircles.length > 0) { e.preventDefault(); finalizeCutPath(); }
+        if (e.key === 'Escape') { cutSelectedCircles = []; draw(); }
+    });
+
+    /* --- Actions --- */
+
+    function finalizeCutPath() {
+        var indices = cutSelectedCircles.slice();
+        var dirs = optimizeDirs(indices);
+        cutPaths.push({ circleIndices: indices, directions: dirs });
+        cutSelectedCircles = [];
+        statusBar.textContent = 'Ligne de coupe ajoutée (directions auto-optimisées) !';
+        draw(); renderCutList();
+    }
+
+    function addCircle(x, y, r) { circles.push({ x: x, y: y, radius: r }); renderList(); draw(); }
+
+    function removeCircle(idx) {
+        circles.splice(idx, 1);
+        cutPaths = cutPaths.map(function(cp) {
+            var newIndices = [], newDirs = [];
+            cp.circleIndices.forEach(function(ci, k) {
+                if (ci === idx) return;
+                newIndices.push(ci > idx ? ci - 1 : ci);
+                if (cp.directions) newDirs.push(cp.directions[k]);
+            });
+            return { circleIndices: newIndices, directions: newDirs };
+        }).filter(function(cp) { return cp.circleIndices.length > 0; });
+        cutSelectedCircles = cutSelectedCircles.filter(function(i) { return i !== idx; }).map(function(i) { return i > idx ? i - 1 : i; });
+        renderList(); renderCutList(); draw();
+    }
+
+    window.clearAll = function() { circles = []; cutPaths = []; cutSelectedCircles = []; renderList(); renderCutList(); draw(); };
+    window.clearCutLines = function() { cutPaths = []; cutSelectedCircles = []; renderCutList(); draw(); };
+
+    window.autoGenerateCutPath = function() {
+        if (!circles.length) { statusBar.textContent = 'Ajoutez d\'abord des cercles !'; return; }
+        cutPaths = [];
+        var allIdx = circles.map(function(_, i) { return i; });
+        var bestDirs, bestCost = Infinity;
+
+        if (circles.length <= 12) {
+            var n = circles.length, combos = Math.pow(2, n);
+            for (var combo = 0; combo < combos; combo++) {
+                var dirs = [];
+                for (var b = 0; b < n; b++) dirs.push((combo >> b) & 1 ? 'horizontal' : 'vertical');
+                var segs = buildCutSegments({ circleIndices: allIdx, directions: dirs });
+                var cost = 0;
+                segs.forEach(function(s) { cost += Math.hypot(s.x2 - s.x1, s.y2 - s.y1); });
+                if (cost < bestCost) { bestCost = cost; bestDirs = dirs.slice(); }
+            }
+        } else {
+            bestDirs = optimizeDirs(allIdx);
+            var segs2 = buildCutSegments({ circleIndices: allIdx, directions: bestDirs });
+            segs2.forEach(function(s) { bestCost += Math.hypot(s.x2 - s.x1, s.y2 - s.y1); });
+        }
+
+        cutPaths.push({ circleIndices: allIdx, directions: bestDirs });
+        var vC = bestDirs.filter(function(d) { return d === 'vertical'; }).length;
+        statusBar.textContent = 'Auto-coupe : ' + vC + '↕ ' + (bestDirs.length - vC) + '↔ — trajet ' + Math.round(bestCost) + 'mm';
+        renderCutList(); draw();
+    };
+
+    function removeCutPath(idx) { cutPaths.splice(idx, 1); renderCutList(); draw(); }
+
+    /* --- UI lists --- */
+
+    function renderList() {
+        $list.innerHTML = '';
+        document.getElementById('circleCount').textContent = circles.length;
+        if (!circles.length) { $list.innerHTML = '<p class="hint">Aucun cercle ajouté.</p>'; return; }
+        circles.forEach(function(c, i) {
+            var div = document.createElement('div'); div.className = 'circle-item';
+            div.innerHTML = '<span class="info">⭕ #' + (i + 1) + ' — X:<b>' + c.x + '</b> Y:<b>' + c.y + '</b> R:<b>' + c.radius + '</b></span>';
+            var btn = document.createElement('button'); btn.className = 'btn-remove'; btn.textContent = '✕';
+            (function(idx) { btn.onclick = function() { removeCircle(idx); }; })(i);
+            div.appendChild(btn); $list.appendChild(div);
+        });
+    }
+
+    function renderCutList() {
+        $cutList.innerHTML = '';
+        document.getElementById('cutCount').textContent = cutPaths.length;
+        cutPaths.forEach(function(cp, i) {
+            var div = document.createElement('div'); div.className = 'cut-item';
+            var dirs = cp.directions || [];
+            var details = cp.circleIndices.map(function(idx, k) { return '#' + (idx + 1) + (dirs[k] === 'horizontal' ? '↔' : '↕'); }).join(' ');
+            div.innerHTML = '<span class="info">✂️ #' + (i + 1) + ' — ' + details + '</span>';
+            var btn = document.createElement('button'); btn.className = 'btn-remove'; btn.textContent = '✕';
+            (function(idx) { btn.onclick = function() { removeCutPath(idx); }; })(i);
+            div.appendChild(btn); $cutList.appendChild(div);
+        });
+    }
+
+    /* --- Draw --- */
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        var w = pw(), h = ph(), scale = getScale();
+
+        // Grille
+        ctx.strokeStyle = '#1a2440'; ctx.lineWidth = 0.5;
+        for (var gi = 0; gi <= canvas.width; gi += 40) { ctx.beginPath(); ctx.moveTo(gi, 0); ctx.lineTo(gi, canvas.height); ctx.stroke(); }
+        for (var gj = 0; gj <= canvas.height; gj += 40) { ctx.beginPath(); ctx.moveTo(0, gj); ctx.lineTo(canvas.width, gj); ctx.stroke(); }
+
+        // Plaque
+        var corner = toCanvas(0, h);
+        ctx.fillStyle = '#0f1a30';
+        ctx.fillRect(corner[0], corner[1], w * scale, h * scale);
+        ctx.strokeStyle = '#53d8fb'; ctx.lineWidth = 2; ctx.setLineDash([]);
+        ctx.strokeRect(corner[0], corner[1], w * scale, h * scale);
+        ctx.fillStyle = '#53d8fb33'; ctx.font = '11px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(w + ' x ' + h + ' mm', corner[0] + 4, corner[1] + 4);
+
+        // Cut paths
+        cutPaths.forEach(function(cp) {
+            if (!cp.circleIndices.length) return;
+            if (!cp.circleIndices.every(function(idx) { return idx < circles.length; })) return;
+            var segs = buildCutSegments(cp);
+            var dirs = cp.directions || [];
+
+            segs.forEach(function(seg) {
+                var a = toCanvas(seg.x1, seg.y1), b = toCanvas(seg.x2, seg.y2);
+                ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 2.5; ctx.setLineDash([8, 4]);
+                ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
+                var midX = (a[0] + b[0]) / 2, midY = (a[1] + b[1]) / 2;
+                var angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
+                ctx.save(); ctx.translate(midX, midY); ctx.rotate(angle);
+                ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath();
+                ctx.fillStyle = '#9b59b6'; ctx.fill(); ctx.restore();
+            });
+
+            cp.circleIndices.forEach(function(idx, k) {
+                var c = circles[idx], dir = dirs[k] || 'vertical';
+                var ep = dir === 'vertical' ? toCanvas(c.x, c.y + c.radius) : toCanvas(c.x - c.radius, c.y);
+                var xp = dir === 'vertical' ? toCanvas(c.x, c.y - c.radius) : toCanvas(c.x + c.radius, c.y);
+                ctx.beginPath(); ctx.arc(ep[0], ep[1], 5, 0, Math.PI * 2); ctx.fillStyle = '#2ecc71'; ctx.fill();
+                ctx.beginPath(); ctx.arc(xp[0], xp[1], 5, 0, Math.PI * 2); ctx.fillStyle = '#e94560'; ctx.fill();
+                var cpt = toCanvas(c.x, c.y);
+                ctx.fillStyle = '#9b59b688'; ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                ctx.fillText(dir === 'vertical' ? '↕' : '↔', cpt[0], cpt[1] - c.radius * scale - 6);
+            });
+
+            if (segs.length) {
+                var s0 = toCanvas(segs[0].x1, segs[0].y1);
+                ctx.beginPath(); ctx.arc(s0[0], s0[1], 7, 0, Math.PI * 2);
+                ctx.fillStyle = '#2ecc71'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                var sn = toCanvas(segs[segs.length - 1].x2, segs[segs.length - 1].y2);
+                ctx.beginPath(); ctx.arc(sn[0], sn[1], 7, 0, Math.PI * 2);
+                ctx.fillStyle = '#e94560'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+            }
+        });
+
+        // Cercles
+        circles.forEach(function(c, i) {
+            var pt = toCanvas(c.x, c.y), cx = pt[0], cy = pt[1], r = c.radius * scale;
+            var isSel = cutSelectedCircles.indexOf(i) >= 0;
+            ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            if (isSel) { ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 3; ctx.setLineDash([6, 3]); }
+            else { ctx.strokeStyle = draggingIdx === i ? '#2ecc71' : '#e94560'; ctx.lineWidth = 2; ctx.setLineDash([]); }
+            ctx.stroke(); ctx.setLineDash([]);
+            if (isSel) { ctx.beginPath(); ctx.arc(cx, cy, r + 6, 0, Math.PI * 2); ctx.strokeStyle = '#9b59b644'; ctx.lineWidth = 4; ctx.stroke(); }
+            ctx.fillStyle = '#e94560'; ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = isSel ? '#9b59b6' : '#53d8fb';
+            ctx.font = Math.max(10, r * 0.7) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('' + (i + 1), cx, cy);
+            ctx.fillStyle = '#e9456066'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+            ctx.fillText('R' + c.radius, cx + r + 4, cy - 6);
+        });
+    }
+
+    /* --- Buttons --- */
+
+    document.getElementById('btnAdd').addEventListener('click', function() {
+        addCircle(parseFloat($cx.value) || 0, parseFloat($cy.value) || 0, parseFloat($cr.value) || 10);
+    });
+    $w.addEventListener('input', draw);
+    $h.addEventListener('input', draw);
+
+    document.getElementById('btnGenerate').addEventListener('click', function() {
+        var cutLineSegments = [];
+        cutPaths.forEach(function(cp) {
+            if (!cp.circleIndices.every(function(idx) { return idx < circles.length; })) return;
+            buildCutSegments(cp).forEach(function(s) { cutLineSegments.push(s); });
+        });
+        var payload = { squareWidth: pw(), squareHeight: ph(), circles: circles, cutLines: cutLineSegments };
+        fetch('{{ path("dxf_generate") }}', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        .then(function(r) { if (!r.ok) throw new Error('Erreur serveur'); return r.blob(); })
+        .then(function(blob) {
+            var url = URL.createObjectURL(blob), a = document.createElement('a');
+            a.href = url; a.download = 'piece.dxf'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+        })
+        .catch(function(err) { alert('Erreur: ' + err.message); });
+    });
+
+    setMode('draw');
+    draw();
+})();
+</script>
+{% endblock %}
+
